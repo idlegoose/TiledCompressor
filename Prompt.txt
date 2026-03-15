@@ -1,0 +1,9 @@
+We will be making a Tiled map compressor. Libraries to download and use: tmxlite, SDL3, others as applicable.
+A User will select a tmx(map) file from a file dialog. The directory the map file is in will be the working directory.
+A new directory will be created "[mapName]_converted" that will house the output files.
+The program shall load all tilesets(images) and tmx-Tilesets using appropriate xml fields(tilewidth and tileheight) to clip tiles.
+The map layers shall be rendered from lowest to highest. Once the entire map has been rendered, used tile indexes shall be output to command line showing tile gid's by count, zero counts excluded.
+These tiles shall be rendered to a new image in the output folder "[mapname]_tileset_compressed.PNG"
+A new map file shall also be output to the folder with the new tileset indexes used in place of the gid's from various tmx or other tileset definitions.
+
+*I believe SDL 3 has a repo we can clone into our source, that might make it easier to diagnose errors in the future.
