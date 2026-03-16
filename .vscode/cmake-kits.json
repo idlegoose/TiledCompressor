@@ -1,0 +1,12 @@
+[
+    {
+        "name": "Visual Studio - x64 (vcpkg)",
+        "visualStudio": "VisualStudio.17.0",
+        "visualStudioArchitecture": "x64",
+        "preferredGenerator": {
+            "name": "Visual Studio 18 2026",
+            "platform": "x64"
+        },
+        "toolchainFile": "C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
+    }
+]

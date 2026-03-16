@@ -1,6 +1,11 @@
 build/
 .vs/
-.vscode/
+# Allow .vscode configuration files for easier project setup
+.vscode/*
+!.vscode/settings.json
+!.vscode/cmake-kits.json
+!.vscode/launch.json
+!.vscode/c_cpp_properties.json
 *.user
 *.suo
 *.exe

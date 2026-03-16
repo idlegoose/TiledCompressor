@@ -27,74 +27,50 @@ A command-line tool that compresses Tiled map files (.tmx) by optimizing their t
 
 ## Building
 
-### Windows
+## Building
 
-1. **Install Dependencies**
+**For detailed build instructions, see [QUICKSTART.md](QUICKSTART.md)**
 
-   **Option A: Using vcpkg (Recommended)**
-   ```powershell
-   # Install vcpkg if you haven't
-   git clone https://github.com/Microsoft/vcpkg.git
-   cd vcpkg
-   .\bootstrap-vcpkg.bat
-   .\vcpkg integrate install
-   
-   # Install dependencies
-   # IMPORTANT: sdl3-image needs [png] feature for PNG support
-   .\vcpkg install sdl3 sdl3-image[png] tmxlite
-   ```
+### Quick Start (Windows with vcpkg)
 
-   **Option B: Manual Installation**
-   - Download and install SDL3 from [libsdl.org](https://www.libsdl.org/)
-   - Clone and build tmxlite from [GitHub](https://github.com/fallahn/tmxlite)
+```powershell
+# Install vcpkg and dependencies
+git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
+cd C:\vcpkg
+.\bootstrap-vcpkg.bat
+.\vcpkg install sdl3:x64-windows sdl3-image[png]:x64-windows tmxlite:x64-windows
 
-2. **Download stb_image_write.h**
-   
-   Download the complete `stb_image_write.h` from the [stb repository](https://raw.githubusercontent.com/nothings/stb/master/stb_image_write.h) and place it in `third_party/stb_image_write.h` (replacing the stub file).
+# Build the project
+cd path\to\TiledCompressor
+Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue
+mkdir build; cd build
+cmake .. -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake
+cmake --build . --config Release
+```
 
-3. **Configure and Build**
-   ```powershell
-   mkdir build
-   cd build
-   
-   # If using vcpkg:
-   cmake .. -DCMAKE_TOOLCHAIN_FILE=[path to vcpkg]/scripts/buildsystems/vcpkg.cmake
-   
-   # Or without vcpkg:
-   cmake ..
-   
-   # Build
-   cmake --build . --config Release
-   ```
+### VS Code Users
+
+The project includes `.vscode` configuration for CMake Tools:
+1. Install the "CMake Tools" extension
+2. Open the project in VS Code  
+3. Select "Visual Studio - x64 (vcpkg)" kit when prompted
+4. Press F7 to build
 
 ### Linux
 
-1. **Install Dependencies**
-   ```bash
-   # Ubuntu/Debian
-   sudo apt-get install cmake g++ libsdl3-dev libsdl3-image-dev zenity
-   
-   # Clone and build tmxlite (if not in package manager)
-   git clone https://github.com/fallahn/tmxlite.git
-   cd tmxlite/tmxlite
-   mkdir build && cd build
-   cmake ..
-   make
-   sudo make install
-   ```
+```bash
+# Install dependencies (Ubuntu/Debian)
+sudo apt-get install cmake g++ zenity
+sudo apt-get install libsdl2-dev libsdl2-image-dev  # or libsdl3-dev
+git clone https://github.com/Microsoft/vcpkg.git ~/vcpkg
+~/vcpkg/bootstrap-vcpkg.sh
+~/vcpkg/vcpkg install tmxlite
 
-2. **Download stb_image_write.h**
-   ```bash
-   wget https://raw.githubusercontent.com/nothings/stb/master/stb_image_write.h -O third_party/stb_image_write.h
-   ```
-
-3. **Build**
-   ```bash
-   mkdir build
-   cd build
-   cmake ..
-   make
-   ```
+# Build
+mkdir build && cd build
+cmake .. -DCMAKE_TOOLCHAIN_FILE=~/vcpkg/scripts/buildsystems/vcpkg.cmake
+make
+```
 
 ## Usage
 
@@ -134,9 +110,10 @@ The program will:
      GID 12: 45 times
      ...
    ```
-5. Create a new directory: `[mapname]_converted/`
+5. Create a new directory: `[mapname]_compressed/`
 6. Generate `[mapname]_tileset_compressed.png` (optimized tileset)
-7. Generate `[mapname]_converted.tmx` (new map file with remapped indices)
+7. Generate `[mapname]_compressed.tmx` (new map file with remapped indices)
+8. Generate `[mapname]_tileset.tsx` (tileset definition file)
 
 ### Example
 
@@ -145,9 +122,10 @@ Input:  maps/level1.tmx
         maps/tileset1.png
         maps/tileset2.png
 
-Output: maps/level1_converted/
-        maps/level1_converted/level1_tileset_compressed.png
-        maps/level1_converted/level1_converted.tmx
+Output: maps/level1_compressed/
+        maps/level1_compressed/level1_tileset_compressed.png
+        maps/level1_compressed/level1_compressed.tmx
+        maps/level1_compressed/level1_tileset.tsx
 ```
 
 ## How It Works
