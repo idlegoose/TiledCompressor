@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <vector>
 #include "SDL_compat.h"
 #include <tmxlite/Layer.hpp>
 #include <tmxlite/TileLayer.hpp>
@@ -15,6 +16,7 @@
 #include <tmxlite/Object.hpp>
 #include <tmxlite/Property.hpp>
 #include <tmxlite/Tileset.hpp>
+#include "../third_party/stb_image_write.h"
 
 namespace fs = std::filesystem;
 
@@ -841,6 +843,35 @@ bool MapConverter::SaveConvertedMap(const std::string& outputDir) {
     std::string newTmxPath = (fs::path(outputDir) / (mapName + "_converted.tmx")).string();
     if (!GenerateNewTMX(newTmxPath)) {
         return false;
+    }
+    
+    // Save render surface as PNG for visualization
+    if (renderSurface) {
+        std::string renderPath = (fs::path(outputDir) / (mapName + "_render.png")).string();
+        std::cout << "\nSaving render preview..." << std::endl;
+        
+        // Copy surface data to buffer
+        std::vector<uint8_t> pixels(renderSurface->w * renderSurface->h * 4);
+        
+        if (SDL_MUSTLOCK(renderSurface)) {
+            SDL_LockSurface(renderSurface);
+        }
+        
+        memcpy(pixels.data(), renderSurface->pixels, pixels.size());
+        
+        if (SDL_MUSTLOCK(renderSurface)) {
+            SDL_UnlockSurface(renderSurface);
+        }
+        
+        // Write PNG
+        int result = stbi_write_png(renderPath.c_str(), renderSurface->w, renderSurface->h, 4,
+                                   pixels.data(), renderSurface->w * 4);
+        
+        if (result) {
+            std::cout << "Render preview saved to: " << renderPath << std::endl;
+        } else {
+            std::cout << "Warning: Failed to save render preview" << std::endl;
+        }
     }
     
     std::cout << "\n=== Conversion Complete! ===" << std::endl;

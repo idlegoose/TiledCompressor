@@ -118,7 +118,7 @@ int main(int argc, char* argv[]) {
 
     // Create output directory
     std::string outputDir = (fs::path(converter.GetWorkingDirectory()) / 
-                             (converter.GetMapName() + "_converted")).string();
+                             (converter.GetMapName() + "_compressed")).string();
 
     // Save converted map
     if (!converter.SaveConvertedMap(outputDir)) {
