@@ -69,6 +69,11 @@ private:
     bool ProcessObjectLayers();
 
     /**
+     * Register animation frame tiles for a given GID and store the frame list
+     */
+    void RegisterTileAnimations(uint32_t gid, const tmx::Tileset& tileset, size_t tilesetIndex);
+
+    /**
      * Generate the new TMX file with remapped GIDs
      */
     bool GenerateNewTMX(const std::string& outputPath);
@@ -86,6 +91,9 @@ private:
     std::map<uint32_t, std::pair<int, int>> objectTileSizes;
     int maxObjectTileWidth;   // Maximum width among all object tiles
     int maxObjectTileHeight;  // Maximum height among all object tiles
+
+    // Map from base tile GID to animation frames: {frame GID, duration ms}
+    std::map<uint32_t, std::vector<std::pair<uint32_t, uint32_t>>> tileAnimations;
     
     SDL_Surface* renderSurface;
     int tileWidth;

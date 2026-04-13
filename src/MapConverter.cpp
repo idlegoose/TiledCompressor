@@ -45,6 +45,9 @@ MapConverter::~MapConverter() {
 
 bool MapConverter::LoadMap(const std::string& tmxPath) {
     this->tmxPath = tmxPath;
+
+    // tmxlite is more reliable with normalized forward-slash absolute paths.
+    std::string normalizedMapPath = fs::absolute(fs::path(tmxPath)).lexically_normal().generic_string();
     
     // Extract working directory and map name
     fs::path path(tmxPath);
@@ -56,9 +59,24 @@ bool MapConverter::LoadMap(const std::string& tmxPath) {
     std::cout << "Map name: " << mapName << std::endl;
     
     // Load the TMX map
-    if (!map.load(tmxPath)) {
-        std::cerr << "Failed to load TMX file: " << tmxPath << std::endl;
-        return false;
+    if (!map.load(normalizedMapPath)) {
+        std::cerr << "Primary TMX load failed, retrying with in-memory fallback..." << std::endl;
+
+        std::ifstream in(tmxPath, std::ios::binary);
+        if (!in.is_open()) {
+            std::cerr << "Failed to open TMX file for fallback load: " << tmxPath << std::endl;
+            return false;
+        }
+
+        std::string xml((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        in.close();
+
+        if (!map.loadFromString(xml, normalizedMapPath)) {
+            std::cerr << "Failed to load TMX file: " << tmxPath << std::endl;
+            return false;
+        }
+
+        std::cout << "Fallback TMX load succeeded." << std::endl;
     }
     
     auto& mapTileSize = map.getTileSize();
@@ -160,6 +178,59 @@ bool MapConverter::LoadTilesets() {
     return true;
 }
 
+void MapConverter::RegisterTileAnimations(uint32_t gid, const tmx::Tileset& tileset, size_t tilesetIndex) {
+    // Mask out potential raw TMX flip bits if present.
+    constexpr uint32_t kTileIdMask = 0x1FFFFFFF;
+    gid &= kTileIdMask;
+
+    // Skip if we already processed this GID
+    if (tileAnimations.count(gid)) return;
+
+    const auto& tilesetTiles = tileset.getTiles();
+    const uint32_t firstGID = tileset.getFirstGID();
+
+    // Find the Tileset::Tile entry for this GID. tmxlite tile IDs are expected
+    // to be local to the tileset, but we also tolerate global IDs defensively.
+    for (const auto& tileData : tilesetTiles) {
+        uint32_t tileLocalID = tileData.ID;
+        uint32_t tileGlobalFromLocal = firstGID + tileLocalID;
+        bool matches = (tileGlobalFromLocal == gid) || (tileData.ID == gid);
+        if (!matches) continue;
+
+        const auto& frames = tileData.animation.frames;
+        if (frames.empty()) break;
+
+        int tilesetTileWidth  = tileset.getTileSize().x;
+        int tilesetTileHeight = tileset.getTileSize().y;
+        int tilesPerRow = tilesetSurfaces[tilesetIndex]->w / tilesetTileWidth;
+
+        std::vector<std::pair<uint32_t, uint32_t>> frameList;
+        for (const auto& frame : frames) {
+            uint32_t frameLocalID = frame.tileID;
+            uint32_t frameGID = firstGID + frameLocalID;
+
+            // Defensive fallback if frame.tileID already appears to be global.
+            if (frame.tileID >= firstGID && frame.tileID <= tileset.getLastGID()) {
+                frameGID = frame.tileID;
+                frameLocalID = frameGID - firstGID;
+            }
+
+            frameGID &= kTileIdMask;
+
+            int srcX = (frameLocalID % tilesPerRow) * tilesetTileWidth;
+            int srcY = (frameLocalID / tilesPerRow) * tilesetTileHeight;
+            compressor->RegisterUsedTile(frameGID, tilesetSurfaces[tilesetIndex],
+                                         srcX, srcY, tilesetTileWidth, tilesetTileHeight);
+            frameList.emplace_back(frameGID, frame.duration);
+        }
+        tileAnimations[gid] = std::move(frameList);
+        std::cout << "  Found animation for GID " << gid
+                  << " in tileset '" << tileset.getName()
+                  << "' with " << tileAnimations[gid].size() << " frame(s)" << std::endl;
+        break;
+    }
+}
+
 bool MapConverter::RenderAndTrackTiles() {
     std::cout << "\n=== Rendering Map and Tracking Tiles ===" << std::endl;
     std::cout.flush();
@@ -182,6 +253,7 @@ bool MapConverter::RenderAndTrackTiles() {
     
     const auto& layers = map.getLayers();
     const auto& tilesets = map.getTilesets();
+    constexpr uint32_t kTileIdMask = 0x1FFFFFFF;
     
     // Process each layer from bottom to top
     for (const auto& layer : layers) {
@@ -212,7 +284,7 @@ bool MapConverter::RenderAndTrackTiles() {
                         size_t index = y * chunk.size.x + x;
                         if (index >= chunk.tiles.size()) continue;
                         
-                        uint32_t gid = chunk.tiles[index].ID;
+                        uint32_t gid = chunk.tiles[index].ID & kTileIdMask;
                         if (gid == 0) continue; // Empty tile
                         nonZeroCount++;
                         
@@ -257,6 +329,7 @@ bool MapConverter::RenderAndTrackTiles() {
                         // Register this tile
                         compressor->RegisterUsedTile(gid, tilesetSurfaces[tilesetIndex],
                                                     srcX, srcY, tilesetTileWidth, tilesetTileHeight);
+                        RegisterTileAnimations(gid, *tileset, tilesetIndex);
                         
                         // Render to surface (for visualization, optional)
                         int mapX = chunk.position.x + x;
@@ -280,7 +353,7 @@ bool MapConverter::RenderAndTrackTiles() {
             for (size_t y = 0; y < mapSize.y; ++y) {
                 for (size_t x = 0; x < mapSize.x; ++x) {
                     size_t index = y * mapSize.x + x;
-                    uint32_t gid = tiles[index].ID;
+                    uint32_t gid = tiles[index].ID & kTileIdMask;
                     
                     if (gid == 0) continue; // Empty tile
                     nonZeroCount++;
@@ -326,6 +399,7 @@ bool MapConverter::RenderAndTrackTiles() {
                 // Register this tile
                 compressor->RegisterUsedTile(gid, tilesetSurfaces[tilesetIndex],
                                             srcX, srcY, tilesetTileWidth, tilesetTileHeight);
+                RegisterTileAnimations(gid, *tileset, tilesetIndex);
                 
                 // Render to surface (for visualization, optional)
                 SDL_Rect srcRect = { srcX, srcY, tilesetTileWidth, tilesetTileHeight };
@@ -352,6 +426,7 @@ bool MapConverter::ProcessObjectLayers() {
     
     const auto& layers = map.getLayers();
     const auto& tilesets = map.getTilesets();
+    constexpr uint32_t kTileIdMask = 0x1FFFFFFF;
     int objectLayerCount = 0;
     int totalObjects = 0;
     
@@ -372,7 +447,7 @@ bool MapConverter::ProcessObjectLayers() {
         std::cout << "  Objects in layer: " << objects.size() << std::endl;
         
         for (const auto& obj : objects) {
-            uint32_t tileID = obj.getTileID();
+            uint32_t tileID = obj.getTileID() & kTileIdMask;
             
             // Only process objects that reference tiles (tileID > 0)
             if (tileID == 0) {
@@ -499,6 +574,32 @@ bool MapConverter::GenerateNewTMX(const std::string& outputPath) {
         << "\" height=\""
         << numRows * tileHeight
         << "\"/>\n";
+
+    // Emit animation data for each tile that has one
+    size_t emittedAnimationCount = 0;
+    for (const auto& animEntry : tileAnimations) {
+        uint32_t baseGID = animEntry.first;
+        const auto& frames = animEntry.second;
+        if (frames.empty()) continue;
+
+        uint32_t newBaseIndex = compressor->GetNewIndex(baseGID);
+        if (newBaseIndex == 0) continue; // tile wasn't registered
+
+        // id= in the tileset element is 0-based
+        out << "  <tile id=\"" << (newBaseIndex - 1) << "\">\n";
+        out << "   <animation>\n";
+        for (const auto& frame : frames) {
+            uint32_t newFrameIndex = compressor->GetNewIndex(frame.first);
+            if (newFrameIndex == 0) continue;
+            out << "    <frame tileid=\"" << (newFrameIndex - 1) << "\" duration=\"" << frame.second << "\"/>\n";
+        }
+        out << "   </animation>\n";
+        out << "  </tile>\n";
+        emittedAnimationCount++;
+    }
+
+    std::cout << "Emitted " << emittedAnimationCount << " tile animation(s) to output TMX" << std::endl;
+
     out << " </tileset>\n";
     
     // Write object tileset reference if objects exist
@@ -529,6 +630,7 @@ bool MapConverter::GenerateNewTMX(const std::string& outputPath) {
     // Write layers with remapped GIDs in 16x16 chunks
     const auto& layers = map.getLayers();
     const auto& tilesets = map.getTilesets();
+    constexpr uint32_t kTileIdMask = 0x1FFFFFFF;
     
     for (const auto& layer : layers) {
         if (layer->getType() != tmx::Layer::Type::Tile) {
@@ -559,7 +661,7 @@ bool MapConverter::GenerateNewTMX(const std::string& outputPath) {
                         if (index < chunk.tiles.size()) {
                             int worldX = chunk.position.x + cx;
                             int worldY = chunk.position.y + cy;
-                            tileMap[{worldX, worldY}] = chunk.tiles[index].ID;
+                            tileMap[{worldX, worldY}] = chunk.tiles[index].ID & kTileIdMask;
                         }
                     }
                 }
@@ -569,7 +671,7 @@ bool MapConverter::GenerateNewTMX(const std::string& outputPath) {
                 for (size_t x = 0; x < mapSize.x; ++x) {
                     size_t index = y * mapSize.x + x;
                     if (index < tiles.size()) {
-                        tileMap[{static_cast<int>(x), static_cast<int>(y)}] = tiles[index].ID;
+                        tileMap[{static_cast<int>(x), static_cast<int>(y)}] = tiles[index].ID & kTileIdMask;
                     }
                 }
             }

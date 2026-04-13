@@ -39,14 +39,29 @@ if(NOT tmxlite_FOUND)
     # Try to find tmxlite manually (vcpkg doesn't provide CMake config)
     find_path(TMXLITE_INCLUDE_DIR tmxlite/Map.hpp)
     find_library(TMXLITE_LIBRARY NAMES tmxlite tmxlite-d)
+    if(WIN32)
+        find_file(TMXLITE_DLL NAMES tmxlite.dll
+            PATHS
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/bin"
+            "${CMAKE_PREFIX_PATH}/bin"
+            "${CMAKE_PREFIX_PATH}/debug/bin")
+    endif()
     
     if(TMXLITE_INCLUDE_DIR AND TMXLITE_LIBRARY)
         message(STATUS "Found tmxlite manually: ${TMXLITE_LIBRARY}")
         add_library(tmxlite SHARED IMPORTED)
-        set_target_properties(tmxlite PROPERTIES
-            IMPORTED_LOCATION "${TMXLITE_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${TMXLITE_INCLUDE_DIR}"
-        )
+        if(WIN32 AND TMXLITE_DLL)
+            set_target_properties(tmxlite PROPERTIES
+                IMPORTED_LOCATION "${TMXLITE_DLL}"
+                INTERFACE_INCLUDE_DIRECTORIES "${TMXLITE_INCLUDE_DIR}"
+            )
+        else()
+            set_target_properties(tmxlite PROPERTIES
+                IMPORTED_LOCATION "${TMXLITE_LIBRARY}"
+                INTERFACE_INCLUDE_DIRECTORIES "${TMXLITE_INCLUDE_DIR}"
+            )
+        endif()
         # For Windows, we need to set IMPORTED_IMPLIB
         if(WIN32)
             set_target_properties(tmxlite PROPERTIES
@@ -93,10 +108,80 @@ target_link_libraries(TiledCompressor
     tmxlite
 )
 
+# vcpkg x64-windows may provide release-only tmxlite binaries. On MSVC this can
+# break Debug due to STL ABI mismatch across DLL boundaries (tmxlite API uses
+# std::string). If no debug tmxlite import lib exists, align Debug ABI to release.
+if(MSVC AND DEFINED VCPKG_TARGET_TRIPLET)
+    set(TMXLITE_DEBUG_IMPLIB "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/lib/tmxlite.lib")
+    if(NOT EXISTS "${TMXLITE_DEBUG_IMPLIB}")
+        message(WARNING "tmxlite debug library not found; aligning Debug runtime ABI to release for compatibility.")
+        set_property(TARGET TiledCompressor PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+        target_compile_definitions(TiledCompressor PRIVATE $<$<CONFIG:Debug>:_ITERATOR_DEBUG_LEVEL=0>)
+    endif()
+endif()
+
 target_include_directories(TiledCompressor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # Copy SDL DLL to output directory on Windows
 if(WIN32)
+    # Always try to copy tmxlite runtime when available as a target.
+    if(TARGET tmxlite)
+        add_custom_command(TARGET TiledCompressor POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:tmxlite>
+            $<TARGET_FILE_DIR:TiledCompressor>
+        )
+    endif()
+
+    # If using vcpkg, also copy common tmxlite dependencies from bin folders.
+    if(DEFINED VCPKG_TARGET_TRIPLET)
+        find_file(TMXLITE_DLL_RELEASE NAMES tmxlite.dll
+            PATHS
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
+            "${CMAKE_PREFIX_PATH}/bin")
+        find_file(TMXLITE_DLL_DEBUG NAMES tmxlite.dll
+            PATHS
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/bin"
+            "${CMAKE_PREFIX_PATH}/debug/bin")
+        find_file(PUGIXML_DLL_RELEASE NAMES pugixml.dll
+            PATHS
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
+            "${CMAKE_PREFIX_PATH}/bin")
+        find_file(PUGIXML_DLL_DEBUG NAMES pugixml.dll
+            PATHS
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/bin"
+            "${CMAKE_PREFIX_PATH}/debug/bin")
+
+        if(TMXLITE_DLL_RELEASE)
+            add_custom_command(TARGET TiledCompressor POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${TMXLITE_DLL_RELEASE}"
+                $<TARGET_FILE_DIR:TiledCompressor>
+            )
+        endif()
+        if(TMXLITE_DLL_DEBUG)
+            add_custom_command(TARGET TiledCompressor POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${TMXLITE_DLL_DEBUG}"
+                $<TARGET_FILE_DIR:TiledCompressor>
+            )
+        endif()
+        if(PUGIXML_DLL_RELEASE)
+            add_custom_command(TARGET TiledCompressor POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PUGIXML_DLL_RELEASE}"
+                $<TARGET_FILE_DIR:TiledCompressor>
+            )
+        endif()
+        if(PUGIXML_DLL_DEBUG)
+            add_custom_command(TARGET TiledCompressor POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PUGIXML_DLL_DEBUG}"
+                $<TARGET_FILE_DIR:TiledCompressor>
+            )
+        endif()
+    endif()
+
     if(USE_SDL3)
         add_custom_command(TARGET TiledCompressor POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
